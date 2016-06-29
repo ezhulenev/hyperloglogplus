@@ -1,0 +1,45 @@
+name:                hyperloglogplus
+version:             0.1.0.0
+synopsis:            Initial project template from stack
+description:         Please see README.md
+homepage:            https://github.com/ezhulenev/hyperloglogplus#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Eugene Zhulenev
+maintainer:          eugene.zhulenev@example.com
+copyright:           Copyright: (c) 2016 Eugene Zhulenev
+category:            Haskell
+build-type:          Simple
+cabal-version:       >=1.10
+description:
+  HyperLogLogPlus
+
+extra-source-files:
+  README.md
+
+source-repository head
+  type:     git
+  location: https://github.com/ezhulenev/hyperloglogplus
+
+library
+  default-language:    Haskell2010
+  
+  build-depends:
+    base >= 4.7 && < 5
+
+  exposed-modules:
+    Data.HyperLogLogPlus
+    Data.HyperLogLogPlus.Config
+    Data.HyperLogLogPlus.Type
+
+  ghc-options: -Wall -fwarn-tabs -O2
+  hs-source-dirs: src
+
+test-suite hyperloglogplus-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , hyperloglogplus
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010

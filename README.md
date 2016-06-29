@@ -1,1 +1,1 @@
-# hyperloglogplus
+# HyperLogLogPlus
