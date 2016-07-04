@@ -12,6 +12,7 @@ module Data.HyperLogLogPlus.Type
   , insert
   , insertHash
   , size
+  , intersection
   ) where
 
 import           Control.Monad
@@ -20,6 +21,7 @@ import           Data.HyperLogLogPlus.Config
 
 import           Data.Set                    (Set)
 import qualified Data.Set                    as Set
+import           Data.List                   (find, maximum, foldl')
 
 import           Data.Vector                 ((!))
 import qualified Data.Vector                 as DV
@@ -131,6 +133,26 @@ estimatedBias e p
         red = rawEstimateData ! i
         bd = biasData ! i
         idx = V.find (\x -> red ! x < e && e < red ! (x + 1)) $ V.enumFromN 0 (DV.length red - 2)
+
+-- |   Returns an estimate of the size of the intersection
+-- of the given HyperLogLogPlus objects
+intersection :: forall p k . (KnownNat p, KnownNat k) => [HyperLogLogPlus p k] -> Word64
+intersection hs
+  | null hs                        = 0
+  | any (\hll -> size hll == 0) hs = 0
+  | otherwise                      = round $ ((fromIntegral r) / (fromIntegral n)) * (fromIntegral s)
+    where k = natVal (Proxy :: Proxy k)
+          u = Set.unions $ map hllMinSet hs
+          s = size $ foldl1 (<>) hs
+          n = min (fromIntegral k) (maximum $ map (Set.size . hllMinSet) hs)
+          (_, r) = V.foldl f (u, 0 :: Int) $ V.enumFromN 0 n
+          f :: (Set Hash64, Int) -> Int -> (Set Hash64, Int)
+          f (s, r) i
+            | inAll     = (s', r + 1)
+            | otherwise = (s', r)
+            where (l, s') = Set.deleteFindMin s
+                  inAll = all (\hll -> Set.member l $ hllMinSet hll) hs
+
 
 -- | Compute bucket index for given HLL precision level
 bucketIdx :: Integer -> Hash64 -> Int
