@@ -13,6 +13,7 @@ module Data.HyperLogLogPlus.Type
   , insertHash
   , size
   , intersection
+  , cast
   ) where
 
 import           Control.Monad
@@ -21,7 +22,6 @@ import           Data.HyperLogLogPlus.Config
 
 import           Data.Set                    (Set)
 import qualified Data.Set                    as Set
-import           Data.List                   (find, maximum, foldl')
 
 import           Data.Vector                 ((!))
 import qualified Data.Vector                 as DV
@@ -31,8 +31,8 @@ import qualified Data.Vector.Unboxed.Mutable as MV
 import           Data.Proxy
 import           Data.Semigroup
 import           Data.Word
-import           Data.Bits
-import           Data.Bits.Extras
+import           Data.Bits                   (shiftL, shiftR)
+import           Data.Bits.Extras            (nlz)
 import           Data.Digest.Murmur64
 
 import           GHC.TypeLits
@@ -43,10 +43,15 @@ import           GHC.Int
 -- >>> :load Data.HyperLogLogPlus
 -- >>>
 -- >>> type HLL = HyperLogLogPlus 12 8192
--- >>>
+--
 -- >>> mempty :: HLL
+--
 -- >>> size (foldr insert mempty [1 .. 75000] :: HLL)
+--
 -- >>> size $ (foldr insert mempty [1 .. 5000] ::  HLL) <> (foldr insert mempty [3000 .. 10000] :: HLL)
+--
+-- >>> intersection $ [ (foldr insert mempty [1 .. 15000] ::  HLL)
+--                    , (foldr insert mempty [12000 .. 20000] :: HLL) ]
 
 -- | HyperLogLogPlus cardinality estimation paired with MinHash for intersection estimation
 -- p - precision of HLL structure
@@ -59,8 +64,8 @@ data HyperLogLogPlus (p :: Nat) (k :: Nat) = HyperLogLogPlus
 type role HyperLogLogPlus nominal nominal
 
 instance (KnownNat k) => Semigroup (HyperLogLogPlus p k) where
-  a@(HyperLogLogPlus ar ah) <> b@(HyperLogLogPlus br bh) = HyperLogLogPlus (V.zipWith max ar br) (iterate Set.deleteMax u !! n)
-    where k = fromIntegral $ kctx a
+  (HyperLogLogPlus ar ah) <> (HyperLogLogPlus br bh) = HyperLogLogPlus (V.zipWith max ar br) (iterate Set.deleteMax u !! n)
+    where k = fromIntegral $ natVal (Proxy :: Proxy k)
           u = Set.union ah bh
           n = max 0 (Set.size u - k)
 
@@ -70,7 +75,7 @@ instance (KnownNat p, KnownNat k, 4 <= p, p <= 18) => Monoid (HyperLogLogPlus p 
   mappend = (<>)
 
 instance (KnownNat p, KnownNat k) => Show (HyperLogLogPlus p k) where
-  show hll@(HyperLogLogPlus rank minSet) = "HyperLogLogPlus [p = " ++ p ++ " k = " ++ k ++ " ] [ minSet size = " ++ s ++ " ]"
+  show hll@(HyperLogLogPlus _ minSet) = "HyperLogLogPlus [p = " ++ p ++ " k = " ++ k ++ " ] [ minSet size = " ++ s ++ " ]"
     where p = show $ pctx hll
           k = show $ kctx hll
           s = show $ Set.size minSet
@@ -93,7 +98,7 @@ insertHash hash hll@(HyperLogLogPlus rank minSet) = HyperLogLogPlus rank' minSet
                 where s = Set.insert hash minSet
 
 size :: forall p k . (KnownNat p, KnownNat k) => HyperLogLogPlus p k -> Word64
-size hll@(HyperLogLogPlus rank minSet)
+size hll@(HyperLogLogPlus _ minSet)
   | ss < k    = fromIntegral ss
   | otherwise = round $ estimatedSize hll
   where k = fromIntegral $ kctx hll
@@ -101,7 +106,7 @@ size hll@(HyperLogLogPlus rank minSet)
 
 -- | Compute estimted size based on HLL
 estimatedSize :: forall p k . (KnownNat p, KnownNat k) => HyperLogLogPlus p k -> Double
-estimatedSize hll@(HyperLogLogPlus rank minSet)
+estimatedSize hll@(HyperLogLogPlus rank _)
   | h <= thresholds ! idx = h
   | otherwise             = e
   where p = pctx hll
@@ -140,18 +145,56 @@ intersection :: forall p k . (KnownNat p, KnownNat k) => [HyperLogLogPlus p k] -
 intersection hs
   | null hs                        = 0
   | any (\hll -> size hll == 0) hs = 0
-  | otherwise                      = round $ ((fromIntegral r) / (fromIntegral n)) * (fromIntegral s)
+  | otherwise                      = round $ ((fromIntegral r) / (fromIntegral n)) * (fromIntegral ts)
     where k = natVal (Proxy :: Proxy k)
           u = Set.unions $ map hllMinSet hs
-          s = size $ foldl1 (<>) hs
+          ts = size $ foldl1 (<>) hs
           n = min (fromIntegral k) (maximum $ map (Set.size . hllMinSet) hs)
           (_, r) = V.foldl f (u, 0 :: Int) $ V.enumFromN 0 n
           f :: (Set Hash64, Int) -> Int -> (Set Hash64, Int)
-          f (s, r) i
-            | inAll     = (s', r + 1)
-            | otherwise = (s', r)
+          f (s, cnt) _
+            | inAll     = (s', cnt + 1)
+            | otherwise = (s', cnt)
             where (l, s') = Set.deleteFindMin s
                   inAll = all (\hll -> Set.member l $ hllMinSet hll) hs
+
+-- | Cast HyperLogLogPlus to new precision levels
+cast :: forall p1 k1 p2 k2 . (KnownNat p1, KnownNat k1, KnownNat p2, KnownNat k2,
+                              4 <= p2, p2 <= 18)
+     => HyperLogLogPlus p1 k1 -> Maybe (HyperLogLogPlus p2 k2)
+cast oldHll
+  -- shrinking HLL and MinHash precision
+  | p2 <= p1 && k2 <= k1 = Just $ HyperLogLogPlus rank minSet
+  -- shrinking HLL precision and extending MinHash precision
+  -- only if observed hashes are smaller than old precision
+  | p2 <= p1 &&
+    (k2 > k1 && sz < k1) = Just $ HyperLogLogPlus rank minSet
+  -- othersize cast is not possible
+  | otherwise            = Nothing
+  where
+    newHll = mempty :: HyperLogLogPlus p2 k2
+    p1 = pctx oldHll
+    k1 = kctx oldHll
+    p2 = pctx newHll
+    k2 = kctx newHll
+    sz = fromIntegral $ Set.size $ hllMinSet oldHll
+    newBuckets = numBuckets p2
+    -- compute new ranks
+    rank = V.modify (\m ->
+        V.forM_ (V.indexed $ hllRank oldHll) $ \ (i, o) -> do
+          let j = mod i newBuckets
+          a <- MV.read m j
+          MV.write m j (max o a)
+      ) $ hllRank newHll
+    -- delete hashes from min-set if required
+    ndel = max 0 (sz - k2)
+    minSet = iterate Set.deleteMax (hllMinSet oldHll) !! (fromIntegral ndel)
+
+--   newBuckets <= oldBuckets = Just $ over _HyperLogLog ?? mempty $ V.modify $ \m ->
+--    V.forM_ (V.indexed $ old^._HyperLogLog) $ \ (i,o) -> do
+--      let j = mod i newBuckets
+--      a <- MV.read m j
+--      MV.write m j (max o a)
 
 
 -- | Compute bucket index for given HLL precision level

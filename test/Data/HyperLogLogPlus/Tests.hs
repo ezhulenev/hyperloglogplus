@@ -7,6 +7,7 @@ module Data.HyperLogLogPlus.Tests
 
 import           Data.HyperLogLogPlus
 import           Data.Semigroup
+import           Data.Maybe
 
 import           Test.Tasty              (TestTree, testGroup)
 import           Test.Tasty.HUnit        (testCase)
@@ -18,6 +19,11 @@ tests = testGroup "Data.HyperLogLogPlus"
     , testCase "testSmallSet" testSmallSet
     , testCase "testBigSet" testBigSet
     , testCase "testSemigroup" testSemigroup
+    , testCase "testIntersection" testIntersection
+    , testCase "testUpcastP" testUpcastP
+    , testCase "testUpcastK" testUpcastK
+    , testCase "testUpcastK'" testUpcastK'
+    , testCase "testDowncast" testDowncast
     ]
 
 type HLL = HyperLogLogPlus 12 8192
@@ -37,6 +43,35 @@ testSemigroup = assertBool "" $ 49000 < n && n < 51000
   where hll1 = foldr insert mempty (gen [1 .. 35000]) :: HLL
         hll2 = foldr insert mempty (gen [15000 .. 50000]) :: HLL
         n = size $ hll1 <> hll2
+
+testIntersection :: Assertion
+testIntersection = assertBool "" $ 4900 < n && n < 5100
+  where hll1 = foldr insert mempty (gen [1 .. 35000]) :: HLL
+        hll2 = foldr insert mempty (gen [30000 .. 50000]) :: HLL
+        n = intersection [hll1, hll2]
+
+testUpcastP :: Assertion
+testUpcastP = assertBool "" $ isNothing casted
+  where hll = foldr insert mempty (gen [1 .. 5000]) :: HyperLogLogPlus 12 1024
+        casted = cast hll :: Maybe(HyperLogLogPlus 14 1024)
+
+-- reached min-set limit
+testUpcastK :: Assertion
+testUpcastK = assertBool "" $ isNothing casted
+  where hll = foldr insert mempty (gen [1 .. 5000]) :: HyperLogLogPlus 12 1024
+        casted = cast hll :: Maybe(HyperLogLogPlus 12 2048)
+
+-- didn't reach original min-set limit
+testUpcastK' :: Assertion
+testUpcastK' = assertBool "" $ isJust casted
+  where hll = foldr insert mempty (gen [1 .. 500]) :: HyperLogLogPlus 12 1024
+        casted = cast hll :: Maybe(HyperLogLogPlus 12 2048)
+
+testDowncast :: Assertion
+testDowncast = assertBool "" $ 14000 < n && n < 16000
+  where hll = foldr insert mempty (gen [1 .. 15000]) :: HyperLogLogPlus 12 4096
+        casted = cast hll :: Maybe(HyperLogLogPlus 10 2048)
+        n = fromJust $ fmap size casted
 
 gen :: (Show a) => [a] -> [String]
 gen = map show
