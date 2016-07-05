@@ -7,6 +7,8 @@ using constant space.
 
 See original AdRoll paper for details: [HyperLogLog and MinHash](http://tech.adroll.com/media/hllminhash.pdf)
 
+Also [AdRoll blog post](http://tech.adroll.com/blog/data/2013/07/10/hll-minhash.html)
+
 ```Haskell
 -- Example:
 :set -XDataKinds
