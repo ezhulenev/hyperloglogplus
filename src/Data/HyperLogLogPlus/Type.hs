@@ -38,24 +38,42 @@ import           Data.Digest.Murmur64
 import           GHC.TypeLits
 import           GHC.Int
 
--- Example:
+-- | HyperLogLogPlus cardinality estimation paired with MinHash for intersection estimation
+--
+--  * 'p' - precision of HLL structure
+--
+--  * 'k' - precision of MinHash structure (max size)
+--
+-- Create new counter:
+--
 -- >>> :set -XDataKinds
 -- >>> :load Data.HyperLogLogPlus
--- >>>
 -- >>> type HLL = HyperLogLogPlus 12 8192
---
 -- >>> mempty :: HLL
+-- HyperLogLogPlus [ p = 12 k = 8192 ] [ minSet size = 0 ]
+--
+-- HyperLogLogPlus and MinHash precisions are specified in a type.
+-- HLL precision 'p' should be between 4 and 18, starting from 10
+-- for good accuracy.
+--
+-- MinHash precision 'k' ideally should be greater or equal 8192
+-- for decent intersection estimation.
+--
+--
+-- Estimating number of unique items:
 --
 -- >>> size (foldr insert mempty [1 .. 75000] :: HLL)
+-- 75090
+--
+-- Combine multiple counters:
 --
 -- >>> size $ (foldr insert mempty [1 .. 5000] ::  HLL) <> (foldr insert mempty [3000 .. 10000] :: HLL)
+-- 10044
 --
--- >>> intersection $ [ (foldr insert mempty [1 .. 15000] ::  HLL)
---                    , (foldr insert mempty [12000 .. 20000] :: HLL) ]
-
--- | HyperLogLogPlus cardinality estimation paired with MinHash for intersection estimation
--- p - precision of HLL structure
--- k - precision of MinHash structure (max size)
+-- Compute estimated set intersection:
+--
+-- >>> intersection $ [(foldr insert mempty [1 .. 15000] ::  HLL), (foldr insert mempty [12000 .. 20000] :: HLL)]
+-- 3100
 data HyperLogLogPlus (p :: Nat) (k :: Nat) = HyperLogLogPlus
   { hllRank   :: V.Vector Int8
   , hllMinSet :: Set Hash64
@@ -80,9 +98,11 @@ instance (KnownNat p, KnownNat k) => Show (HyperLogLogPlus p k) where
           k = show $ kctx hll
           s = show $ Set.size minSet
 
+-- | Insert hashable value
 insert :: forall p k a . (KnownNat p, KnownNat k, Hashable64 a) => a -> HyperLogLogPlus p k -> HyperLogLogPlus p k
 insert e = insertHash (hash64 e)
 
+-- | Insert already hashed value
 insertHash :: forall p k . (KnownNat p, KnownNat k) => Hash64 -> HyperLogLogPlus p k -> HyperLogLogPlus p k
 insertHash hash hll@(HyperLogLogPlus rank minSet) = HyperLogLogPlus rank' minSet'
   where p = fromIntegral $ pctx hll
@@ -97,6 +117,8 @@ insertHash hash hll@(HyperLogLogPlus rank minSet) = HyperLogLogPlus rank' minSet
                 | otherwise      = s
                 where s = Set.insert hash minSet
 
+-- | Compute estimated size of HyperLogLogPlus. If number of inserted values is smaller than
+-- MinHash precision this will return exact value
 size :: forall p k . (KnownNat p, KnownNat k) => HyperLogLogPlus p k -> Word64
 size hll@(HyperLogLogPlus _ minSet)
   | ss < k    = fromIntegral ss
@@ -139,7 +161,7 @@ estimatedBias e p
         bd = biasData ! i
         idx = V.find (\x -> red ! x < e && e < red ! (x + 1)) $ V.enumFromN 0 (DV.length red - 2)
 
--- |   Returns an estimate of the size of the intersection
+-- | Returns an estimate of the size of the intersection
 -- of the given HyperLogLogPlus objects
 intersection :: forall p k . (KnownNat p, KnownNat k) => [HyperLogLogPlus p k] -> Word64
 intersection hs
@@ -159,6 +181,11 @@ intersection hs
                   inAll = all (\hll -> Set.member l $ hllMinSet hll) hs
 
 -- | Cast HyperLogLogPlus to new precision levels
+--
+--  1. New HLL precision should less or equal to old one
+--  2. New MinHash precision has to be less or equal to old one,
+--  or it can be larger, but only if number of inserted hashes in old
+--  structure is smaller than old precision (size limit)
 cast :: forall p1 k1 p2 k2 . (KnownNat p1, KnownNat k1, KnownNat p2, KnownNat k2,
                               4 <= p2, p2 <= 18)
      => HyperLogLogPlus p1 k1 -> Maybe (HyperLogLogPlus p2 k2)
@@ -189,13 +216,6 @@ cast oldHll
     -- delete hashes from min-set if required
     ndel = max 0 (sz - k2)
     minSet = iterate Set.deleteMax (hllMinSet oldHll) !! (fromIntegral ndel)
-
---   newBuckets <= oldBuckets = Just $ over _HyperLogLog ?? mempty $ V.modify $ \m ->
---    V.forM_ (V.indexed $ old^._HyperLogLog) $ \ (i,o) -> do
---      let j = mod i newBuckets
---      a <- MV.read m j
---      MV.write m j (max o a)
-
 
 -- | Compute bucket index for given HLL precision level
 bucketIdx :: Integer -> Hash64 -> Int
