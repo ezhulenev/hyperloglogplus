@@ -38,7 +38,7 @@ import           Data.Digest.Murmur64
 import           GHC.TypeLits
 import           GHC.Int
 
--- | HyperLogLogPlus cardinality estimation paired with MinHash for intersection estimation
+-- | HyperLogLog++ cardinality estimation paired with MinHash for intersection estimation
 --
 --  * 'p' - precision of HLL structure
 --
