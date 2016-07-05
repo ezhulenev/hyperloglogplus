@@ -1,6 +1,6 @@
 # HyperLogLogPlus
 
-[![Build Status](https://secure.travis-ci.org/ezhulenev/hyperloglogplus.png?branch=master)](http://travis-ci.org/ezhulenev/hyperloglogplus)
+[![Hackage](https://img.shields.io/hackage/v/hyperloglogplus.svg)](https://hackage.haskell.org/package/hyperloglogplus) [![Build Status](https://secure.travis-ci.org/ezhulenev/hyperloglogplus.png?branch=master)](http://travis-ci.org/ezhulenev/hyperloglogplus)
 
 Haskell implementation of HyperLogLog++ with MinHash for efficient cardinality and intersection estimation
 using constant space.
