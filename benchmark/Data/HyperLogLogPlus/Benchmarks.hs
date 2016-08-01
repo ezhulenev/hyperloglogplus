@@ -10,6 +10,7 @@ module Data.HyperLogLogPlus.Benchmarks
 
 import Data.HyperLogLogPlus
 import Data.Word
+import Data.Semigroup
 
 import Criterion            (Benchmark, bench, nf, env)
 
