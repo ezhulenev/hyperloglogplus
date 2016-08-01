@@ -4,8 +4,10 @@
 module Main (main) where
 
 import           Criterion.Main                  (bgroup, defaultMain)
+
 import qualified Data.HyperLogLogPlus.Benchmarks as B
 
+import           Data.Semigroup
 import           Data.HyperLogLogPlus
 
 main :: IO ()
