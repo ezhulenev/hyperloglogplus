@@ -5,6 +5,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE DeriveGeneric       #-}
 
 module Data.HyperLogLogPlus.Type
   (
@@ -86,11 +88,14 @@ instance (KnownNat k) => Semigroup (HyperLogLogPlus p k) where
     where k = fromIntegral $ natVal (Proxy :: Proxy k)
           u = Set.union ah bh
           n = max 0 (Set.size u - k)
+  {-# INLINE (<>) #-}
 
 instance (KnownNat p, KnownNat k, 4 <= p, p <= 18) => Monoid (HyperLogLogPlus p k) where
   mempty = HyperLogLogPlus (V.replicate (numBuckets p) 0) Set.empty
     where p = natVal (Proxy :: Proxy p)
+  {-# INLINE mempty #-}
   mappend = (<>)
+  {-# INLINE mappend #-}
 
 instance (KnownNat p, KnownNat k) => Show (HyperLogLogPlus p k) where
   show hll@(HyperLogLogPlus _ minSet) = "HyperLogLogPlus [p = " ++ p ++ " k = " ++ k ++ " ] [ minSet size = " ++ s ++ " ]"
@@ -101,14 +106,15 @@ instance (KnownNat p, KnownNat k) => Show (HyperLogLogPlus p k) where
 -- | Insert hashable value
 insert :: forall p k a . (KnownNat p, KnownNat k, Hashable64 a) => a -> HyperLogLogPlus p k -> HyperLogLogPlus p k
 insert e = insertHash (hash64 e)
+{-# INLINE insert #-}
 
 -- | Insert already hashed value
 insertHash :: forall p k . (KnownNat p, KnownNat k) => Hash64 -> HyperLogLogPlus p k -> HyperLogLogPlus p k
 insertHash hash hll@(HyperLogLogPlus rank minSet) = HyperLogLogPlus rank' minSet'
-  where p = fromIntegral $ pctx hll
-        k = fromIntegral $ kctx hll
-        idx = bucketIdx p hash
-        rnk = calcRank p hash
+  where !p = fromIntegral $ pctx hll
+        !k = fromIntegral $ kctx hll
+        !idx = bucketIdx p hash
+        !rnk = calcRank p hash
         rank' = V.modify (\mv -> do
                   old <- MV.read mv idx
                   when (rnk > old) $ MV.write mv idx rnk
@@ -116,6 +122,7 @@ insertHash hash hll@(HyperLogLogPlus rank minSet) = HyperLogLogPlus rank' minSet
         minSet' | Set.size s > k = Set.deleteMax s
                 | otherwise      = s
                 where s = Set.insert hash minSet
+{-# INLINE insertHash #-}
 
 -- | Compute estimated size of HyperLogLogPlus. If number of inserted values is smaller than
 -- MinHash precision this will return exact value
@@ -125,6 +132,7 @@ size hll@(HyperLogLogPlus _ minSet)
   | otherwise = round $ estimatedSize hll
   where k = fromIntegral $ kctx hll
         ss = Set.size minSet
+{-# INLINE size #-}
 
 -- | Compute estimted size based on HLL
 estimatedSize :: forall p k . (KnownNat p, KnownNat k) => HyperLogLogPlus p k -> Double
@@ -142,6 +150,7 @@ estimatedSize hll@(HyperLogLogPlus rank _)
           | otherwise  = ae
         h | nz > 0     = q * log (q / nz)
           | otherwise  =  e
+{-# INLINE estimatedSize #-}
 
 -- | Returns an estimate of the bias given our current
 -- estimate of size and our precision.
@@ -160,6 +169,7 @@ estimatedBias e p
         red = rawEstimateData ! i
         bd = biasData ! i
         idx = V.find (\x -> red ! x < e && e < red ! (x + 1)) $ V.enumFromN 0 (DV.length red - 2)
+{-#INLINE estimatedBias #-}
 
 -- | Returns an estimate of the size of the intersection
 -- of the given HyperLogLogPlus objects
@@ -179,6 +189,7 @@ intersection hs
             | otherwise = (s', cnt)
             where (l, s') = Set.deleteFindMin s
                   inAll = all (\hll -> Set.member l $ hllMinSet hll) hs
+{-# INLINE intersection #-}
 
 -- | Cast HyperLogLogPlus to new precision levels
 --
@@ -220,11 +231,13 @@ cast oldHll
 -- | Compute bucket index for given HLL precision level
 bucketIdx :: Integer -> Hash64 -> Int
 bucketIdx p h = fromIntegral $ shiftR (asWord64 h) (64 - fromIntegral p)
+{-# INLINE bucketIdx #-}
 
 -- | Compute hash rank for given HLL precision level
 calcRank :: Integer -> Hash64 -> Int8
 calcRank p h = 1 + lz
   where lz = fromIntegral $ nlz $ shiftL (asWord64 h) $ fromIntegral p
+{-# INLINE calcRank #-}
 
 kctx :: forall p k . (KnownNat k) => HyperLogLogPlus p k -> Integer
 kctx _ = natVal (Proxy :: Proxy k)
